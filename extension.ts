@@ -15,6 +15,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Layout from 'resource:///org/gnome/shell/ui/layout.js';
+import * as OverviewControls from 'resource:///org/gnome/shell/ui/overviewControls.js';
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import {
@@ -108,6 +109,8 @@ export default class OrmicLauncherExtension extends Extension {
     _userPos: { x: number; y: number } | null = null;
     _focusWatchId: number | null = null;
     _keyFocusWatchId: number | null = null;
+    _origOverviewShow: ((state?: number) => void) | null = null;
+    _routingAppGrid = false;
     _focusId!: number | null;
     _overlayCapturedId!: number | null;
     _overlayPressId!: number | null;
@@ -198,6 +201,7 @@ export default class OrmicLauncherExtension extends Extension {
         this._monId = Main.layoutManager.connect('monitors-changed', () => {
             this._pos();
         this._installDrag();
+        this._installOverviewHook();
             this._setupEdgeTrigger();
         });
         this._pos();
@@ -250,6 +254,7 @@ export default class OrmicLauncherExtension extends Extension {
         }
         if (this._debugSettingId) { this._settings.disconnect(this._debugSettingId); this._debugSettingId = null; }
         this._interfaceSettings = null;
+        this._removeOverviewHook();
         if (this._overlayDimId) { this._settings.disconnect(this._overlayDimId); this._overlayDimId = null; }
         if (this._theme && this._dynamicCssFile) {
             this._theme.unload_stylesheet(this._dynamicCssFile);
@@ -315,6 +320,45 @@ export default class OrmicLauncherExtension extends Extension {
      * Nothing is consumed until the pointer passes the threshold, so clicks,
      * caret placement and launching apps are unaffected.
      */
+    /**
+     * Route app-grid requests to this launcher.
+     *
+     * Overview.showApps() is just show(ControlsState.APP_GRID), and Dash to
+     * Dock's apps button calls that overload directly rather than showApps(),
+     * so hooking show() catches both and any other caller. A plain show()
+     * defaults to WINDOW_PICKER and is passed through untouched, leaving the
+     * overview and its gestures alone.
+     */
+    _installOverviewHook() {
+        if (!this._settings.get_boolean('replace-app-grid') || this._origOverviewShow) return;
+        const self = this;
+        const overview = Main.overview as any;
+        this._origOverviewShow = overview.show;
+        overview.show = function (state = OverviewControls.ControlsState.WINDOW_PICKER) {
+            if (state === OverviewControls.ControlsState.APP_GRID && !Main.overview.visible) {
+                // Unchecking the dock button below re-enters here through Dash
+                // to Dock's toggle handler; swallow that echo rather than
+                // letting it reach the original and open the stock grid.
+                if (self._routingAppGrid) return;
+                self._routingAppGrid = true;
+                const showAppsButton = (Main.overview as any).dash?.showAppsButton;
+                if (showAppsButton?.checked) showAppsButton.checked = false;
+                // Dash to Dock defers its toggle handling, so the echo arrives
+                // after this returns; hold the guard past that.
+                timeoutOnce(250, () => { self._routingAppGrid = false; });
+                self.toggle();
+                return;
+            }
+            return self._origOverviewShow!.call(this, state);
+        };
+    }
+
+    _removeOverviewHook() {
+        if (!this._origOverviewShow) return;
+        (Main.overview as any).show = this._origOverviewShow;
+        this._origOverviewShow = null;
+    }
+
     _installDrag() {
         if (!this._dialog) return;
         const dialog = this._dialog;

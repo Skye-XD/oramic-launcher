@@ -64,6 +64,11 @@
       <description>Style of the dialog background (blur, transparent, or solid).</description>
     </key>
 
+    <key name="replace-app-grid" type="b">
+      <default>false</default>
+      <summary>Replace the stock application grid</summary>
+      <description>Open this launcher whenever something asks for GNOME's application grid, including the dock's apps button and Super+A. The overview itself is unaffected, so its gestures keep working.</description>
+    </key>
     <key name="modal-grab" type="b">
       <default>true</default>
       <summary>Grab input while open</summary>
