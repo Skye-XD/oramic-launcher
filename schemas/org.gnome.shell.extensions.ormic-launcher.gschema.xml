@@ -64,6 +64,11 @@
       <description>Style of the dialog background (blur, transparent, or solid).</description>
     </key>
 
+    <key name="modal-grab" type="b">
+      <default>true</default>
+      <summary>Grab input while open</summary>
+      <description>When on, the launcher takes a modal grab: keystrokes always reach the search entry, but clicks outside the card are consumed to dismiss it. When off, clicks outside land on whatever is underneath and the launcher dismisses itself when focus moves away, at the cost of typing only reaching the entry while the shell holds focus.</description>
+    </key>
     <key name="card-position" type="ai">
       <default>[]</default>
       <summary>Remembered card position</summary>

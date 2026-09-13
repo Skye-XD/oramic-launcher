@@ -106,6 +106,8 @@ export default class OrmicLauncherExtension extends Extension {
     _drag: { sx: number; sy: number; dx: number; dy: number; active: boolean } | null = null;
     _dragGrab: Clutter.Grab | null = null;
     _userPos: { x: number; y: number } | null = null;
+    _focusWatchId: number | null = null;
+    _keyFocusWatchId: number | null = null;
     _focusId!: number | null;
     _overlayCapturedId!: number | null;
     _overlayPressId!: number | null;
@@ -495,16 +497,46 @@ export default class OrmicLauncherExtension extends Extension {
         this._dialog.scale_x = 0.94;
         this._dialog.scale_y = 0.94;
 
-        const grab = Main.pushModal(this._overlay, {
-            actionMode: Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
-        });
-        if (!grab) {
-            this._visible = false;
-            this._grab = null;
-            this._overlay.hide();
-            return;
+        // The modal grab is what routes keystrokes to the search entry, but it
+        // also makes the full-monitor overlay swallow every click. Read the
+        // preference here so toggling it takes effect on the next open.
+        const useModal = this._settings.get_boolean('modal-grab');
+        // A non-reactive overlay is not an event target itself, while reactive
+        // children (the card) still are, so clicks outside land on whatever is
+        // underneath instead of being consumed.
+        this._overlay.reactive = useModal;
+        let grab = null;
+        if (useModal) {
+            grab = Main.pushModal(this._overlay, {
+                actionMode: Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW | Shell.ActionMode.POPUP,
+            });
+            if (!grab) {
+                this._visible = false;
+                this._grab = null;
+                this._overlay.hide();
+                return;
+            }
         }
         this._grab = grab;
+        if (!useModal) {
+            // Without a grab we never see the click that lands on another
+            // window, but we do see the focus change it causes. Armed on a
+            // delay because opening churns focus by itself.
+            timeoutOnce(300, () => {
+                if (!this._visible || this._focusWatchId) return;
+                this._focusWatchId = global.display.connect('notify::focus-window', () => {
+                    if (this._visible) this.hide();
+                });
+                // focus-window only fires on a change, so clicking the window
+                // that already had focus would leave us open; that click still
+                // pulls key focus out of the card.
+                this._keyFocusWatchId = global.stage.connect('notify::key-focus', () => {
+                    if (!this._visible) return;
+                    const kf = (global.stage as any).key_focus;
+                    if (!kf || !this._dialog?.contains(kf)) this.hide();
+                });
+            });
+        }
 
         // Scrim fades in a touch faster than the dialog so the dialog reads
         // as arriving "on top of" an already-dimmed backdrop, rather than
@@ -537,6 +569,9 @@ export default class OrmicLauncherExtension extends Extension {
             Main.popModal(this._grab);
             this._grab = null;
         }
+        this._endDrag();
+        if (this._focusWatchId) { global.display.disconnect(this._focusWatchId); this._focusWatchId = null; }
+        if (this._keyFocusWatchId) { global.stage.disconnect(this._keyFocusWatchId); this._keyFocusWatchId = null; }
 
         easeActor(this._dialog, {
             opacity: 0, translation_y: -10, scale_x: 0.96, scale_y: 0.96,
