@@ -53,6 +53,7 @@ export class GridItem extends St.Button {
 
         this.connect('notify::hover', () => {
             if (this.hover && this._hoverCb) this._hoverCb();
+            else if (!this.hover) this.setSelected(false);
         });
     }
 
