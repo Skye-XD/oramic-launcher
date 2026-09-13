@@ -64,6 +64,11 @@
       <description>Style of the dialog background (blur, transparent, or solid).</description>
     </key>
 
+    <key name="card-position" type="ai">
+      <default>[]</default>
+      <summary>Remembered card position</summary>
+      <description>Position of the launcher card as [x, y] relative to the primary monitor's origin, saved when it is dragged. Empty restores the default centred placement.</description>
+    </key>
     <key name="overlay-dim" type="d">
       <default>0.55</default>
       <range min="0.0" max="1.0"/>

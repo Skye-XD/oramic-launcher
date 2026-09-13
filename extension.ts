@@ -84,6 +84,9 @@ function buildAccentCss(colorName: string): string {
 `;
 }
 
+// Pointer travel before a press becomes a drag rather than a click.
+const DRAG_THRESHOLD = 6;
+
 export default class OrmicLauncherExtension extends Extension {
     providers!: any[];
     _visible!: boolean;
@@ -100,6 +103,9 @@ export default class OrmicLauncherExtension extends Extension {
     _cfgId!: number | null;
     _sysAccentId!: number | null;
     _overlayDimId: number | null = null;
+    _drag: { sx: number; sy: number; dx: number; dy: number; active: boolean } | null = null;
+    _dragGrab: Clutter.Grab | null = null;
+    _userPos: { x: number; y: number } | null = null;
     _focusId!: number | null;
     _overlayCapturedId!: number | null;
     _overlayPressId!: number | null;
@@ -189,6 +195,7 @@ export default class OrmicLauncherExtension extends Extension {
 
         this._monId = Main.layoutManager.connect('monitors-changed', () => {
             this._pos();
+        this._installDrag();
             this._setupEdgeTrigger();
         });
         this._pos();
@@ -294,6 +301,97 @@ export default class OrmicLauncherExtension extends Extension {
         } else { if (this._indicator) this._indicator.destroy(); this._indicator = null; }
     }
 
+    /**
+     * Drag the card to reposition it.
+     *
+     * Everything runs in the CAPTURE phase, top-down, so it works regardless of
+     * what a child does with the event afterwards: category tabs consume
+     * button-release, and St.Entry takes an implicit pointer grab for text
+     * selection. A bubble-phase handler sees neither, which leaves the drag
+     * armed and the card stuck to the pointer.
+     *
+     * Nothing is consumed until the pointer passes the threshold, so clicks,
+     * caret placement and launching apps are unaffected.
+     */
+    _installDrag() {
+        if (!this._dialog) return;
+        const dialog = this._dialog;
+        dialog.reactive = true;
+        dialog.connect('captured-event', (_a: any, ev: any) => {
+            switch (ev.type()) {
+            case Clutter.EventType.BUTTON_PRESS: {
+                if (ev.get_button() !== 1) return Clutter.EVENT_PROPAGATE;
+                // Dragging and selecting text are the same gesture, so the
+                // entry cannot serve both; hold Super to drag from there,
+                // matching how GNOME already moves windows.
+                const superHeld = (ev.get_state() & Clutter.ModifierType.MOD4_MASK) !== 0;
+                if (!superHeld && this._isTextTarget(ev.get_source())) return Clutter.EVENT_PROPAGATE;
+                const [sx, sy] = ev.get_coords();
+                const [dx, dy] = dialog.get_position();
+                this._drag = { sx, sy, dx, dy, active: false };
+                return Clutter.EVENT_PROPAGATE;
+            }
+            case Clutter.EventType.MOTION: {
+                if (!this._drag) return Clutter.EVENT_PROPAGATE;
+                // If button 1 is no longer held a release went missing; recover
+                // rather than dragging the card around forever.
+                if (!(ev.get_state() & Clutter.ModifierType.BUTTON1_MASK)) {
+                    this._endDrag();
+                    return Clutter.EVENT_PROPAGATE;
+                }
+                const [mx, my] = ev.get_coords();
+                const ddx = mx - this._drag.sx;
+                const ddy = my - this._drag.sy;
+                if (!this._drag.active) {
+                    if (Math.abs(ddx) < DRAG_THRESHOLD && Math.abs(ddy) < DRAG_THRESHOLD)
+                        return Clutter.EVENT_PROPAGATE;
+                    this._drag.active = true;
+                    // Grab only now: grabbing on press would steal it from grid
+                    // items and make launching by mouse impossible.
+                    this._dragGrab = global.stage.grab(dialog);
+                }
+                const mon = Main.layoutManager.primaryMonitor;
+                if (!mon) return Clutter.EVENT_PROPAGATE;
+                this._userPos = { x: mon.x + this._drag.dx + ddx, y: mon.y + this._drag.dy + ddy };
+                this._pos();
+                return Clutter.EVENT_STOP;
+            }
+            case Clutter.EventType.BUTTON_RELEASE: {
+                const wasDragging = !!this._drag?.active;
+                this._endDrag();
+                // Swallow the release that ends a real drag so letting go over
+                // an icon or a tab does not also activate it.
+                return wasDragging ? Clutter.EVENT_STOP : Clutter.EVENT_PROPAGATE;
+            }
+            default:
+                return Clutter.EVENT_PROPAGATE;
+            }
+        });
+    }
+
+    /** True if the actor is the search entry or lives inside it. */
+    _isTextTarget(actor: any): boolean {
+        for (let a = actor; a && a !== this._dialog; a = a.get_parent()) {
+            if (a instanceof St.Entry || a instanceof Clutter.Text) return true;
+        }
+        return false;
+    }
+
+    _endDrag() {
+        if (this._drag?.active && this._userPos) {
+            const mon = Main.layoutManager.primaryMonitor;
+            if (mon) {
+                this._settings.set_value('card-position',
+                    new GLib.Variant('ai', [this._userPos.x - mon.x, this._userPos.y - mon.y]));
+            }
+        }
+        this._drag = null;
+        if (this._dragGrab) {
+            this._dragGrab.dismiss();
+            this._dragGrab = null;
+        }
+    }
+
     _pos() {
         if (!this._overlay || !this._dialog) return;
         const mon = Main.layoutManager.primaryMonitor;
@@ -301,8 +399,20 @@ export default class OrmicLauncherExtension extends Extension {
 
         const dw = this._settings.get_int('launcher-width');
         const dh = this._settings.get_int('launcher-height');
-        const dx = mon.x + Math.floor((mon.width - dw) / 2);
-        const dy = mon.y + Math.floor(mon.height * 0.14);
+        let dx = mon.x + Math.floor((mon.width - dw) / 2);
+        let dy = mon.y + Math.floor(mon.height * 0.14);
+
+        // A dragged position wins over the default placement. Stored relative
+        // to the primary monitor so it survives a layout change, and clamped on
+        // use so the card can never be parked off-screen.
+        if (!this._userPos) {
+            const saved = this._settings.get_value('card-position').deepUnpack() as number[];
+            if (saved.length === 2) this._userPos = { x: mon.x + saved[0], y: mon.y + saved[1] };
+        }
+        if (this._userPos) {
+            dx = Math.max(mon.x, Math.min(this._userPos.x, mon.x + mon.width - dw));
+            dy = Math.max(mon.y, Math.min(this._userPos.y, mon.y + mon.height - dh));
+        }
 
         this._overlay.set_position(mon.x, mon.y);
         this._overlay.set_size(mon.width, mon.height);
