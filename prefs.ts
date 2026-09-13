@@ -226,7 +226,11 @@ export default class OrmicLauncherPrefs extends ExtensionPreferences {
             }),
         });
         s.bind('edge-trigger-pressure', edgePressureRow, 'value', Gio.SettingsBindFlags.DEFAULT);
-        edgeRow.bind_property('active', edgePressureRow, 'sensitive', GObject.BindingFlags.SYNC_CREATE);
+        // Cast: @girs resolves the enum member and the parameter to two
+        // distinct BindingFlags declarations, so tsc rejects the value it
+        // itself provides. Runtime behaviour is unaffected.
+        edgeRow.bind_property('active', edgePressureRow, 'sensitive',
+            GObject.BindingFlags.SYNC_CREATE as any);
         edgeGroup.add(edgePressureRow);
 
         const advGroup = new Adw.PreferencesGroup({ title: _('Advanced') });
