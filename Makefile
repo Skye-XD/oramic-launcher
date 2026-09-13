@@ -1,4 +1,4 @@
-UUID = ormic-launcher@github.com
+UUID = oramic-launcher@skye-xd.github.io
 DEST = $(HOME)/.local/share/gnome-shell/extensions/$(UUID)
 
 .PHONY: all build clean install uninstall dev-install lint lint-fix pack shexli
