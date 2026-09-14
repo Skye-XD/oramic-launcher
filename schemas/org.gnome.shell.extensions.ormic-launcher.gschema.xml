@@ -86,10 +86,10 @@
       <description>Opacity of the black tint drawn over the desktop while the launcher is open. Zero leaves the desktop untinted, so the launcher reads as a floating panel; clicks outside the card still dismiss it either way.</description>
     </key>
     <key name="grid-columns" type="i">
-      <default>9</default>
-      <range min="1" max="24"/>
+      <default>0</default>
+      <range min="0" max="24"/>
       <summary>Grid columns</summary>
-      <description>Number of application icons per row in the grid. Lower values suit a narrower launcher window.</description>
+      <description>Application icons per row. Zero fills the window, using as many columns as fit the current width and icon size. A fixed value is capped at what fits, so the grid is never cropped.</description>
     </key>
     <key name="grid-icon-size" type="i">
       <default>52</default>

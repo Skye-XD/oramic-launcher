@@ -31,7 +31,7 @@ import { RecentProvider } from './providers/recent.js';
 import { CommandProvider } from './providers/command.js';
 import { WindowProvider } from './providers/window.js';
 
-import { ACCENT_COLORS, ACCENT_COLOR_KEYS, AccentColorKey, buildOverlayCss } from './accent-colors.js';
+import { ACCENT_COLORS, ACCENT_COLOR_KEYS, AccentColorKey } from './accent-colors.js';
 import { LauncherDialog } from './launcher/LauncherDialog.js';
 
 
@@ -153,8 +153,9 @@ export default class OrmicLauncherExtension extends Extension {
         } catch (_) {
             this._interfaceSettings = null;
         }
-        this._overlayDimId = this._settings.connect('changed::overlay-dim', () => this._updateAccentColor());
+        this._overlayDimId = this._settings.connect('changed::overlay-dim', () => this._applyOverlayDim());
         this._updateAccentColor();
+        this._applyOverlayDim();
 
         this._overlayCapturedId = this._overlay.connect('captured-event', (_, ev: any) => {
             const t = ev.type();
@@ -200,11 +201,11 @@ export default class OrmicLauncherExtension extends Extension {
 
         this._monId = Main.layoutManager.connect('monitors-changed', () => {
             this._pos();
-        this._installDrag();
-        this._installOverviewHook();
             this._setupEdgeTrigger();
         });
         this._pos();
+        this._installDrag();
+        this._installOverviewHook();
         this._setupEdgeTrigger();
 
         Main.wm.addKeybinding(
@@ -655,6 +656,19 @@ export default class OrmicLauncherExtension extends Extension {
         return 'yellow';
     }
 
+    /**
+     * Tint behind the launcher, as an inline style.
+     *
+     * A stylesheet rule carries the same specificity as the bundled
+     * `.ormic-overlay` rule, so which of the two wins comes down to load
+     * order. An inline style always applies.
+     */
+    _applyOverlayDim() {
+        if (!this._overlay) return;
+        const dim = Math.min(Math.max(this._settings.get_double('overlay-dim'), 0), 1);
+        this._overlay.style = `background-color: rgba(0, 0, 0, ${dim});`;
+    }
+
     _updateAccentColor() {
         const colorName = this._getResolvedAccentColor();
 
@@ -666,8 +680,7 @@ export default class OrmicLauncherExtension extends Extension {
             const cacheDir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'ormic-launcher']);
             GLib.mkdir_with_parents(cacheDir, 0o700);
             const path = GLib.build_filenamev([cacheDir, 'accent.css']);
-            const dim = this._settings ? this._settings.get_double('overlay-dim') : 0.55;
-            GLib.file_set_contents(path, buildAccentCss(colorName) + buildOverlayCss(dim));
+            GLib.file_set_contents(path, buildAccentCss(colorName));
 
             if (this._dynamicCssFile) {
                 this._theme.unload_stylesheet(this._dynamicCssFile);

@@ -45,16 +45,22 @@ const STATIC_TABS = [
     { name: 'Utilities', icon: 'accessories-calculator-symbolic' },
 ] as const;
 
-// Fallback when the setting cannot be read. The live value comes from
-// `grid-columns`, so the grid can be narrowed to suit the launcher width.
-const DEFAULT_COLUMNS = 9;
-
 // Rows rendered synchronously on the first call (fills the visible viewport);
 // everything beyond renders one chunk per idle frame.
 const INITIAL_ROWS = 3;
 
 // Rows rendered per idle tick after the initial batch.
 const CHUNK_ROWS = 4;
+
+// A grid item is sized from the icon: GridItem.setup() uses `iconSize + 20`
+// and the stylesheet adds 5px of padding on each side.
+const ITEM_EXTRA = 30;
+
+// Horizontal room the grid does not get: the scroll view's bar, plus slack.
+const GRID_CHROME = 16;
+
+// Matches `.ormic-grid-row { spacing }` in the stylesheet.
+const ROW_SPACING = 2;
 
 export class GridController {
     private _s: LauncherState;
@@ -86,16 +92,34 @@ export class GridController {
             if (state.gridScroll.visible) this.renderGridOnly();
         });
 
-        // Same for the column count.
-        state.ext._settings.connect('changed::grid-columns', () => {
-            if (state.gridScroll.visible) this.renderGridOnly();
-        });
+        // Same for anything else that changes how many columns fit.
+        for (const key of ['grid-columns', 'launcher-width']) {
+            state.ext._settings.connect(`changed::${key}`, () => {
+                if (state.gridScroll.visible) this.renderGridOnly();
+            });
+        }
     }
 
-    /** Columns per grid row, from the `grid-columns` preference. */
+    /**
+     * Columns per grid row.
+     *
+     * `grid-columns` = 0 means fill: use as many columns as the window can
+     * hold, so the grid grows with the window and with smaller icons instead
+     * of leaving a band of empty space on the right.
+     *
+     * A fixed count is still honoured, but capped at what fits --
+     * `grid-columns`, `grid-icon-size` and `launcher-width` are independent
+     * preferences, and asking for more than the window allows used to slice
+     * the last column off the right edge.
+     */
     private _columns(): number {
-        const n = this._s.ext._settings.get_int('grid-columns');
-        return n > 0 ? n : DEFAULT_COLUMNS;
+        const s = this._s.ext._settings;
+        const item = s.get_int('grid-icon-size') + ITEM_EXTRA;
+        const avail = s.get_int('launcher-width') - GRID_CHROME;
+        // n items cost n*item plus the gaps between them.
+        const fits = Math.max(1, Math.floor((avail + ROW_SPACING) / (item + ROW_SPACING)));
+        const want = s.get_int('grid-columns');
+        return want > 0 ? Math.min(want, fits) : fits;
     }
 
     cancelRenderJob(): void {

@@ -15,16 +15,3 @@ export const ACCENT_COLORS = {
 export type AccentColorKey = keyof typeof ACCENT_COLORS;
 export const ACCENT_COLOR_KEYS = new Set<string>(Object.keys(ACCENT_COLORS));
 
-/**
- * Overlay dim as a stylesheet rule.
- *
- * The overlay spans the whole monitor behind the launcher card, so its tint is
- * what decides whether the launcher reads as a floating panel or as a
- * fullscreen takeover. Emitted dynamically so it can follow a preference; a
- * value of 0 leaves the desktop untinted while the overlay still catches
- * clicks outside the card.
- */
-export function buildOverlayCss(dim: number): string {
-    const d = Math.min(Math.max(dim, 0), 1);
-    return `.ormic-overlay { background-color: rgba(0, 0, 0, ${d}); }\n`;
-}
