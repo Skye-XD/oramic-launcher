@@ -30,7 +30,7 @@ import { RecentProvider } from './providers/recent.js';
 import { CommandProvider } from './providers/command.js';
 import { WindowProvider } from './providers/window.js';
 
-import { ACCENT_COLORS, ACCENT_COLOR_KEYS, AccentColorKey } from './accent-colors.js';
+import { ACCENT_COLORS, ACCENT_COLOR_KEYS, AccentColorKey, buildOverlayCss } from './accent-colors.js';
 import { LauncherDialog } from './launcher/LauncherDialog.js';
 
 
@@ -99,6 +99,7 @@ export default class OrmicLauncherExtension extends Extension {
     _keyId!: number | null;
     _cfgId!: number | null;
     _sysAccentId!: number | null;
+    _overlayDimId: number | null = null;
     _focusId!: number | null;
     _overlayCapturedId!: number | null;
     _overlayPressId!: number | null;
@@ -141,6 +142,7 @@ export default class OrmicLauncherExtension extends Extension {
         } catch (_) {
             this._interfaceSettings = null;
         }
+        this._overlayDimId = this._settings.connect('changed::overlay-dim', () => this._updateAccentColor());
         this._updateAccentColor();
 
         this._overlayCapturedId = this._overlay.connect('captured-event', (_, ev: any) => {
@@ -239,6 +241,7 @@ export default class OrmicLauncherExtension extends Extension {
         }
         if (this._debugSettingId) { this._settings.disconnect(this._debugSettingId); this._debugSettingId = null; }
         this._interfaceSettings = null;
+        if (this._overlayDimId) { this._settings.disconnect(this._overlayDimId); this._overlayDimId = null; }
         if (this._theme && this._dynamicCssFile) {
             this._theme.unload_stylesheet(this._dynamicCssFile);
         }
@@ -474,7 +477,8 @@ export default class OrmicLauncherExtension extends Extension {
             const cacheDir = GLib.build_filenamev([GLib.get_user_cache_dir(), 'ormic-launcher']);
             GLib.mkdir_with_parents(cacheDir, 0o700);
             const path = GLib.build_filenamev([cacheDir, 'accent.css']);
-            GLib.file_set_contents(path, buildAccentCss(colorName));
+            const dim = this._settings ? this._settings.get_double('overlay-dim') : 0.55;
+            GLib.file_set_contents(path, buildAccentCss(colorName) + buildOverlayCss(dim));
 
             if (this._dynamicCssFile) {
                 this._theme.unload_stylesheet(this._dynamicCssFile);

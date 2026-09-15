@@ -45,14 +45,16 @@ const STATIC_TABS = [
     { name: 'Utilities', icon: 'accessories-calculator-symbolic' },
 ] as const;
 
-const COLUMNS = 9;
+// Fallback when the setting cannot be read. The live value comes from
+// `grid-columns`, so the grid can be narrowed to suit the launcher width.
+const DEFAULT_COLUMNS = 9;
 
-// How many items to render synchronously on the first call (fills the visible
-// viewport). Everything beyond this renders one chunk per idle frame.
-const INITIAL_ITEMS = COLUMNS * 3;  // 30
+// Rows rendered synchronously on the first call (fills the visible viewport);
+// everything beyond renders one chunk per idle frame.
+const INITIAL_ROWS = 3;
 
-// Items rendered per idle tick after the initial batch.
-const CHUNK_ITEMS = COLUMNS * 4;
+// Rows rendered per idle tick after the initial batch.
+const CHUNK_ROWS = 4;
 
 export class GridController {
     private _s: LauncherState;
@@ -83,6 +85,17 @@ export class GridController {
         state.ext._settings.connect('changed::grid-icon-size', () => {
             if (state.gridScroll.visible) this.renderGridOnly();
         });
+
+        // Same for the column count.
+        state.ext._settings.connect('changed::grid-columns', () => {
+            if (state.gridScroll.visible) this.renderGridOnly();
+        });
+    }
+
+    /** Columns per grid row, from the `grid-columns` preference. */
+    private _columns(): number {
+        const n = this._s.ext._settings.get_int('grid-columns');
+        return n > 0 ? n : DEFAULT_COLUMNS;
     }
 
     cancelRenderJob(): void {
@@ -260,7 +273,8 @@ export class GridController {
             return;
         }
 
-        const numRows = Math.ceil(apps.length / COLUMNS);
+        const columns = this._columns();
+        const numRows = Math.ceil(apps.length / columns);
         const rows: St.BoxLayout[] = [];
         for (let r = 0; r < numRows; r++) {
             const row = new St.BoxLayout({
@@ -272,7 +286,7 @@ export class GridController {
             rows.push(row);
         }
 
-        const syncEnd = Math.min(INITIAL_ITEMS, apps.length);
+        const syncEnd = Math.min((INITIAL_ROWS * columns), apps.length);
         this._fillSlice(apps, rows, 0, syncEnd, gen);
 
         if (s.gridScroll.visible) {
@@ -299,7 +313,7 @@ export class GridController {
     ): void {
         for (let i = start; i < end; i++) {
             const app = apps[i];
-            const rowIdx = Math.floor(i / COLUMNS);
+            const rowIdx = Math.floor(i / this._columns());
             const item = this._getPoolItem();
             const capturedIdx = i;
 
@@ -329,7 +343,7 @@ export class GridController {
         idleOnce(() => {
             if (gen !== this._renderGen) return;
 
-            const endIdx = Math.min(startIdx + CHUNK_ITEMS, apps.length);
+            const endIdx = Math.min(startIdx + (CHUNK_ROWS * this._columns()), apps.length);
             this._fillSlice(apps, rows, startIdx, endIdx, gen);
 
             if (endIdx < apps.length)
