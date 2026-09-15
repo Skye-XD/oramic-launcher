@@ -11,6 +11,7 @@ export interface LauncherState {
         _settings: Gio.Settings;
         hide(): void;
         _setClickGuard(): void;
+        openItemMenu(result: SearchResult): void;
     };
     readonly providers: any[];
     readonly shellSettings: Gio.Settings;

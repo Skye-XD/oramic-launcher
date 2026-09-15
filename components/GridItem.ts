@@ -19,6 +19,7 @@ export class GridItem extends St.Button {
     declare private _nameLabel: St.Label;
     declare private _activateCb: (() => void) | null;
     declare private _hoverCb: (() => void) | null;
+    declare private _menuCb: (() => void) | null;
 
     _init() {
         super._init({
@@ -51,16 +52,30 @@ export class GridItem extends St.Button {
             if (this._activateCb) this._activateCb();
         });
 
+        // Secondary press, not 'clicked': St.Button only reports primary
+        // there. The card's drag handler runs in the capture phase but lets
+        // any button but the first through, so this is reached.
+        this.connect('button-press-event', (_a: any, ev: any) => {
+            if (ev.get_button() !== Clutter.BUTTON_SECONDARY)
+                return Clutter.EVENT_PROPAGATE;
+            if (!this._menuCb)
+                return Clutter.EVENT_PROPAGATE;
+            this._menuCb();
+            return Clutter.EVENT_STOP;
+        });
+
         this.connect('notify::hover', () => {
             if (this.hover && this._hoverCb) this._hoverCb();
             else if (!this.hover) this.setSelected(false);
         });
     }
 
-    setup(result: SearchResult, onActivate: () => void, onHover: () => void, iconSize = 52) {
+    setup(result: SearchResult, onActivate: () => void, onHover: () => void, iconSize = 52,
+          onMenu: (() => void) | null = null) {
         this._result = result;
         this._activateCb = onActivate;
         this._hoverCb = onHover;
+        this._menuCb = onMenu;
 
         this.setSelected(false);
 

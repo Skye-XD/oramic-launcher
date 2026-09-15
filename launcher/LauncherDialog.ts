@@ -516,6 +516,7 @@ export class LauncherDialog extends St.BoxLayout {
                 _settings: ext._settings,
                 hide: () => ext.hide(),
                 _setClickGuard: () => ext._setClickGuard(),
+                openItemMenu: (result: any) => ext.openItemMenu(result),
             },
             providers: ext.providers,
             shellSettings: this._shellSettings,

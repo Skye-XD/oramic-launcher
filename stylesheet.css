@@ -706,3 +706,32 @@
 .ormic-editor-scroll StScrollBar StButton#vhandle:hover {
   background-color: rgba(255, 255, 255, 0.38);
 }
+
+/* Item context menu.
+ *
+ * The shell's default popup menu is sized for the system menu -- wide, tall
+ * rows, large text. For a four-entry menu hanging off the cursor that reads as
+ * enormous, so the metrics are tightened here rather than accepting the theme's.
+ */
+.ormic-item-menu .popup-menu-content {
+  padding: 4px 0;
+  min-width: 0;
+  border-radius: 10px;
+}
+
+.ormic-item-menu .popup-menu-item {
+  font-size: 0.92em;
+  min-height: 0;
+  padding: 5px 14px;
+  spacing: 8px;
+  border-radius: 6px;
+}
+
+.ormic-item-menu .popup-separator-menu-item {
+  padding: 0;
+  margin: 3px 8px;
+}
+
+.ormic-item-menu .popup-menu-item:insensitive {
+  opacity: 0.45;
+}

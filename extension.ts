@@ -32,7 +32,10 @@ import { CommandProvider } from './providers/command.js';
 import { WindowProvider } from './providers/window.js';
 
 import { ACCENT_COLORS, ACCENT_COLOR_KEYS, AccentColorKey } from './accent-colors.js';
+import { SearchResult } from './types.js';
 import { LauncherDialog } from './launcher/LauncherDialog.js';
+import { ItemMenuController } from './launcher/ItemMenu.js';
+import { appFromDesktopId } from './launcher/appOps.js';
 
 
 class OrmicIndicator extends PanelMenu.Button {
@@ -107,6 +110,11 @@ export default class OrmicLauncherExtension extends Extension {
     _drag: { sx: number; sy: number; dx: number; dy: number; active: boolean } | null = null;
     _dragGrab: Clutter.Grab | null = null;
     _userPos: { x: number; y: number } | null = null;
+    _itemMenu: ItemMenuController | null = null;
+    // Held while a context menu or one of its dialogs owns the grab. Both
+    // focus watchers below dismiss the launcher when focus leaves the card,
+    // and a menu in uiGroup is outside it.
+    _menuGrabHeld = false;
     _focusWatchId: number | null = null;
     _keyFocusWatchId: number | null = null;
     _origOverviewShow: ((state?: number) => void) | null = null;
@@ -224,6 +232,9 @@ export default class OrmicLauncherExtension extends Extension {
 
         this._focusId = global.stage.connect('notify::key-focus', () => {
             if (!this._visible || !this._overlay) return;
+            // A context menu lives in uiGroup, so its grab reads here as focus
+            // leaving the launcher entirely.
+            if (this._menuGrabHeld) return;
             if (this._clickGuard) return;
             const focus = global.stage.key_focus;
             if (focus && focus !== this._overlay && !this._overlay.contains(focus)) {
@@ -244,6 +255,9 @@ export default class OrmicLauncherExtension extends Extension {
 
     disable() {
         logDebug('Extension', 'disable() called');
+        this._itemMenu?.destroy();
+        this._itemMenu = null;
+        this._menuGrabHeld = false;
         this._destroyEdgeTrigger();
         if (this._edgeSettingId) { this._settings.disconnect(this._edgeSettingId); this._edgeSettingId = null; }
         if (this._edgePressureSettingId) { this._settings.disconnect(this._edgePressureSettingId); this._edgePressureSettingId = null; }
@@ -534,6 +548,25 @@ export default class OrmicLauncherExtension extends Extension {
         return this._visible;
     }
 
+    /**
+     * Open the context menu for one grid item.
+     *
+     * @param result the search result it stands for
+     */
+    openItemMenu(result: SearchResult): void {
+        const app = appFromDesktopId(result.desktopId);
+        // Only real applications have anything to show or remove; a calculator
+        // answer or a running window does not.
+        if (!app) return;
+
+        this._itemMenu ??= new ItemMenuController((this._dialog ?? Main.uiGroup) as any);
+        this._itemMenu.open(app, {
+            activate: () => { this.hide(); result.activate(); },
+            onGrabChanged: (held: boolean) => { this._menuGrabHeld = held; },
+            dismiss: () => this.hide(),
+        });
+    }
+
     toggle() {
         if (this._visible) this.hide();
         else this.show();
@@ -584,13 +617,14 @@ export default class OrmicLauncherExtension extends Extension {
             timeoutOnce(300, () => {
                 if (!this._visible || this._focusWatchId) return;
                 this._focusWatchId = global.display.connect('notify::focus-window', () => {
+                    if (this._menuGrabHeld) return;
                     if (this._visible) this.hide();
                 });
                 // focus-window only fires on a change, so clicking the window
                 // that already had focus would leave us open; that click still
                 // pulls key focus out of the card.
                 this._keyFocusWatchId = global.stage.connect('notify::key-focus', () => {
-                    if (!this._visible) return;
+                    if (!this._visible || this._menuGrabHeld) return;
                     const kf = (global.stage as any).key_focus;
                     if (!kf || !this._dialog?.contains(kf)) this.hide();
                 });
@@ -613,6 +647,9 @@ export default class OrmicLauncherExtension extends Extension {
     hide() {
         logDebug('Launcher', 'hide()');
         if (!this._visible) return;
+        // A menu outlives its item otherwise, since it lives in uiGroup.
+        this._itemMenu?.close();
+        this._menuGrabHeld = false;
         if (!this._dialog || !this._overlay) return;
 
         this._overlay.remove_all_transitions();

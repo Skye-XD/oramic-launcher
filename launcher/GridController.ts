@@ -350,6 +350,7 @@ export class GridController {
                     }
                 },
                 this._s.ext._settings.get_int('grid-icon-size'),
+                () => this._s.ext.openItemMenu(app),
             );
 
             rows[rowIdx].add_child(item);
