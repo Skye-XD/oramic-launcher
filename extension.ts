@@ -520,6 +520,20 @@ export default class OrmicLauncherExtension extends Extension {
         }
     }
 
+    /**
+     * Whether the launcher is on screen.
+     *
+     * Published so another extension can tell an open launcher from a bare
+     * desktop without reaching for private state. The show-desktop fork reads
+     * it to dismiss the launcher on a four-finger spread instead of parking
+     * the windows behind it.
+     *
+     * @returns true while the launcher is showing
+     */
+    isLauncherOpen(): boolean {
+        return this._visible;
+    }
+
     toggle() {
         if (this._visible) this.hide();
         else this.show();
