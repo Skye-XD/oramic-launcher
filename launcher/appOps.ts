@@ -244,39 +244,30 @@ export function showInFiles(app: Shell.App): boolean {
 }
 
 /**
- * The facts worth showing for an application, as label/value pairs.
+ * Open the file manager's own properties window for the application.
  *
- * macOS splits this between Get Info and Quick Look; there is not enough here
- * to justify two surfaces, so it is one.
+ * `ShowItemProperties` is the standard freedesktop interface, the sibling of
+ * the `ShowItems` call behind Show in Files. It gives a real toplevel window --
+ * movable, resizable, familiar -- which is something a shell extension cannot
+ * produce for itself: the extension runs inside the compositor and has no
+ * Wayland client of its own to map a window from.
  *
  * @param app the application to describe
- * @param pkg its package, when already detected
- * @returns rows to render
+ * @returns whether a path was found to ask about
  */
-export function infoRows(app: Shell.App, pkg: PackageInfo | null): [string, string][] {
-    const info = app.get_app_info() as any;
-    const rows: [string, string][] = [];
-
-    const desc = info?.get_description?.();
-    if (desc) rows.push(['Description', desc]);
-
-    const exec = info?.get_executable?.();
-    if (exec) rows.push(['Command', exec]);
-
-    const cats = info?.get_categories?.();
-    if (cats) rows.push(['Categories', String(cats).replace(/;/g, ', ').replace(/, $/, '')]);
-
-    if (pkg) {
-        const kind = pkg.kind === 'flatpak-user' ? 'Flatpak (user)'
-            : pkg.kind === 'flatpak-system' ? 'Flatpak (system)'
-            : pkg.kind === 'rpm' ? 'RPM package'
-            : pkg.kind === 'snap' ? 'Snap'
-            : 'Unknown';
-        rows.push(['Installed as', pkg.name ? `${kind} — ${pkg.name}` : kind]);
-    }
-
+export function showProperties(app: Shell.App): boolean {
     const path = desktopPathOf(app);
-    if (path) rows.push(['Entry', path]);
+    if (!path) return false;
 
-    return rows;
+    try {
+        Gio.DBus.session.call(
+            'org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
+            'org.freedesktop.FileManager1', 'ShowItemProperties',
+            new GLib.Variant('(ass)', [[Gio.File.new_for_path(path).get_uri()], '']),
+            null, Gio.DBusCallFlags.NONE, -1, null, null);
+        return true;
+    } catch (e) {
+        logDebug('appOps', `ShowItemProperties failed: ${e}`);
+        return false;
+    }
 }

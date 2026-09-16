@@ -18,8 +18,8 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { logDebug, idleOnce } from '../utils.js';
-import { detectPackage, showInFiles } from './appOps.js';
-import { showInfoDialog, showRemoveDialog } from './ItemDialogs.js';
+import { detectPackage, showInFiles, showProperties } from './appOps.js';
+import { showRemoveDialog } from './ItemDialogs.js';
 
 export interface ItemMenuCallbacks {
     /** Launch the application, exactly as a plain click would. */
@@ -109,20 +109,21 @@ export class ItemMenuController {
         // out, so it runs once per menu rather than once per click.
         const pkgPromise = detectPackage(app);
 
+        // The file manager's own properties window, not something drawn
+        // here: a shell extension runs inside the compositor and cannot map a
+        // real toplevel. The launcher goes away first, as macOS closes
+        // Launchpad when Get Info opens.
         add('Get Info', () => {
-            pkgPromise
-                .then(pkg => showInfoDialog(app, pkg))
-                .catch(() => showInfoDialog(app, null));
-        }, true);
+            showProperties(app);
+            cb.dismiss();
+        });
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         const removeItem = add('Uninstall', () => {
+            cb.dismiss();
             pkgPromise.then(pkg => {
-                showRemoveDialog(app, pkg, removed => {
-                    cb.onGrabChanged(false);
-                    if (removed) cb.dismiss();
-                });
+                showRemoveDialog(app, pkg, () => cb.onGrabChanged(false));
             });
         }, true);
 

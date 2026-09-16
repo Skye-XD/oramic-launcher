@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// Ormic Launcher — Get Info and Remove dialogs for the item context menu
+// Ormic Launcher — Removal confirmation for the item context menu
 
 import Clutter from 'gi://Clutter';
 import St from 'gi://St';
@@ -8,7 +8,7 @@ import Pango from 'gi://Pango';
 
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 
-import { PackageInfo, infoRows, previewRemoval, runRemoval } from './appOps.js';
+import { PackageInfo, previewRemoval, runRemoval } from './appOps.js';
 
 function wrapped(text: string, styleClass: string): St.Label {
     const label = new St.Label({ text, style_class: styleClass });
@@ -29,32 +29,6 @@ function header(app: Shell.App, subtitle: string): St.BoxLayout {
         col.add_child(wrapped(subtitle, 'prompt-dialog-description'));
     row.add_child(col);
     return row;
-}
-
-/**
- * Get Info. macOS separates this from Quick Look; there is not enough here to
- * justify two surfaces, so the two are one.
- *
- * @param app the application to describe
- * @param pkg its package when known, for the "Installed as" row
- */
-export function showInfoDialog(app: Shell.App, pkg: PackageInfo | null): void {
-    const dialog = new ModalDialog.ModalDialog({ styleClass: 'prompt-dialog' });
-    dialog.contentLayout.add_child(header(app, ''));
-
-    const list = new St.BoxLayout({ vertical: true, style_class: 'prompt-dialog-main-layout' });
-    for (const [label, value] of infoRows(app, pkg)) {
-        list.add_child(wrapped(`${label}:  ${value}`, 'prompt-dialog-description'));
-    }
-    dialog.contentLayout.add_child(list);
-
-    dialog.addButton({
-        label: 'Close',
-        action: () => dialog.close(),
-        key: Clutter.KEY_Escape,
-        default: true,
-    });
-    dialog.open();
 }
 
 /**
