@@ -22,6 +22,8 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 
+import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
+
 import { logDebug } from '../utils.js';
 
 export type PackageKind = 'flatpak-user' | 'flatpak-system' | 'rpm' | 'snap' | 'unknown';
@@ -270,4 +272,42 @@ export function showProperties(app: Shell.App): boolean {
         logDebug('appOps', `ShowItemProperties failed: ${e}`);
         return false;
     }
+}
+
+/**
+ * Whether the application is pinned to the dock.
+ *
+ * The dash and every dock extension read the same `favorite-apps` list, so
+ * there is one answer here rather than one per dock.
+ *
+ * @param app the application to check
+ * @returns whether it is pinned
+ */
+export function isPinnedToDock(app: Shell.App): boolean {
+    const id = app.get_id();
+    return !!id && AppFavorites.getAppFavorites().isFavorite(id);
+}
+
+/**
+ * Pin the application to the dock, or unpin it.
+ *
+ * Goes through the shell's own AppFavorites rather than writing
+ * `favorite-apps` directly: it keeps the in-process favourites map in step
+ * with the setting, and it posts the undo notification that every other way
+ * of pinning in this desktop posts. A menu entry is a deliberate, one-off
+ * action, so that undo is worth having -- unlike the inline star on a search
+ * row, which shows its own state and would be noisy.
+ *
+ * @param app the application to pin or unpin
+ * @param pinned the state to put it in
+ */
+export function setPinnedToDock(app: Shell.App, pinned: boolean): void {
+    const id = app.get_id();
+    if (!id) return;
+
+    const favorites = AppFavorites.getAppFavorites();
+    if (pinned)
+        favorites.addFavorite(id);
+    else
+        favorites.removeFavorite(id);
 }
