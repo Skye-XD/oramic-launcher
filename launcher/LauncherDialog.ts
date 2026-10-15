@@ -15,6 +15,7 @@ import {
     logDebug,
     timeoutOnce,
     boxLayoutParams,
+    eventActor,
 } from '../utils.js';
 
 import { SearchController } from './SearchController.js';
@@ -136,7 +137,7 @@ export class LauncherDialog extends St.BoxLayout {
         this.connect('button-press-event', (_, ev) => {
             this._ext._setClickGuard();
 
-            let actor: any = ev.get_source();
+            let actor: any = eventActor(ev);
             let isInteractive = false;
             while (actor && actor !== (this as any)) {
                 const cName = actor.constructor.name || '';
