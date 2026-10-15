@@ -78,35 +78,59 @@ export function showRemoveDialog(
     // The transaction is the part worth reading, so the confirm button stays
     // out of reach until it has actually been fetched.
     let confirmButton: any = null;
+    let cancelButton: any = null;
+
+    // Either promise below can outlive the dialog, and onFinished must run
+    // exactly once however the dialog ends.
+    let closed = false;
+    dialog.connect('destroy', () => { closed = true; });
+    let done = false;
+    let removing = false;
+    const finish = (removed: boolean, failure?: string) => {
+        if (done) return;
+        done = true;
+        if (!closed) dialog.close();
+        if (failure !== undefined)
+            showFailureDialog(app, failure);
+        onFinished(removed);
+    };
+    const setSensitive = (button: any, sensitive: boolean) => {
+        button?.set_reactive(sensitive);
+        if (sensitive) button?.remove_style_pseudo_class?.('insensitive');
+        else button?.add_style_pseudo_class?.('insensitive');
+    };
 
     previewRemoval(pkg).then(preview => {
+        if (closed || done) return;
         previewLabel.set_text(preview
             ? `Removes:  ${preview}`
             : 'The package manager did not report what it would remove.');
-        confirmButton?.set_reactive(true);
-        confirmButton?.remove_style_pseudo_class?.('insensitive');
+        setSensitive(confirmButton, true);
     }).catch(() => {
+        if (closed || done) return;
         previewLabel.set_text('Could not check what this would remove.');
-        confirmButton?.set_reactive(true);
-        confirmButton?.remove_style_pseudo_class?.('insensitive');
+        setSensitive(confirmButton, true);
     });
 
-    dialog.addButton({
+    cancelButton = dialog.addButton({
         label: 'Cancel',
-        action: () => { dialog.close(); onFinished(false); },
+        action: () => { if (!removing) finish(false); },
         key: Clutter.KEY_Escape,
     });
 
+    // Once the package manager is running there is nothing to cancel: the
+    // dialog stays up until it answers.
     confirmButton = dialog.addButton({
         label: 'Remove',
         action: () => {
+            if (removing || done) return;
+            removing = true;
+            setSensitive(confirmButton, false);
+            setSensitive(cancelButton, false);
             previewLabel.set_text('Removing…');
             runRemoval(pkg).then(result => {
-                dialog.close();
-                if (!result.ok)
-                    showFailureDialog(app, result.message);
-                onFinished(result.ok);
-            });
+                finish(result.ok, result.ok ? undefined : result.message);
+            }).catch(e => finish(false, `${e}`));
         },
     });
     confirmButton?.set_reactive(false);

@@ -116,6 +116,9 @@ export default class OrmicLauncherExtension extends Extension {
     // and a menu in uiGroup is outside it.
     _menuGrabHeld = false;
     _focusWatchId: number | null = null;
+    // The delayed arming of the two watchers above; cancelled on hide so a
+    // quick hide and reopen cannot arm them during the second open's churn.
+    _focusArmTimer: number | null = null;
     _keyFocusWatchId: number | null = null;
     _origOverviewShow: ((state?: number) => void) | null = null;
     _routingAppGrid = false;
@@ -303,6 +306,10 @@ export default class OrmicLauncherExtension extends Extension {
         if (this._clickGuardTimer != null) {
             GLib.source_remove(this._clickGuardTimer);
             this._clickGuardTimer = null;
+        }
+        if (this._focusArmTimer != null) {
+            GLib.source_remove(this._focusArmTimer);
+            this._focusArmTimer = null;
         }
 
         for (const p of this.providers) {
@@ -614,7 +621,9 @@ export default class OrmicLauncherExtension extends Extension {
             // Without a grab we never see the click that lands on another
             // window, but we do see the focus change it causes. Armed on a
             // delay because opening churns focus by itself.
-            timeoutOnce(300, () => {
+            if (this._focusArmTimer != null) GLib.source_remove(this._focusArmTimer);
+            this._focusArmTimer = timeoutOnce(300, () => {
+                this._focusArmTimer = null;
                 if (!this._visible || this._focusWatchId) return;
                 this._focusWatchId = global.display.connect('notify::focus-window', () => {
                     if (this._menuGrabHeld) return;
@@ -666,6 +675,7 @@ export default class OrmicLauncherExtension extends Extension {
             this._grab = null;
         }
         this._endDrag();
+        if (this._focusArmTimer != null) { GLib.source_remove(this._focusArmTimer); this._focusArmTimer = null; }
         if (this._focusWatchId) { global.display.disconnect(this._focusWatchId); this._focusWatchId = null; }
         if (this._keyFocusWatchId) { global.stage.disconnect(this._keyFocusWatchId); this._keyFocusWatchId = null; }
 
