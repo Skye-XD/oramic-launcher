@@ -5,8 +5,14 @@ import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
+
+import * as AppDisplay from 'resource:///org/gnome/shell/ui/appDisplay.js';
+import * as DND from 'resource:///org/gnome/shell/ui/dnd.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { SearchResult } from '../types.js';
+import { appFromDesktopId } from '../launcher/appOps.js';
 import { logDebug, boxLayoutParams } from '../utils.js';
 
 export class GridItem extends St.Button {
@@ -20,6 +26,11 @@ export class GridItem extends St.Button {
     declare private _activateCb: (() => void) | null;
     declare private _hoverCb: (() => void) | null;
     declare private _menuCb: (() => void) | null;
+    declare private _dragStartCb: (() => void) | null;
+    declare private _app: Shell.App | null;
+    declare private _iconSize: number;
+    declare private _dragProxy: any;
+    declare private _dndGesture: any;
 
     _init() {
         super._init({
@@ -64,6 +75,8 @@ export class GridItem extends St.Button {
             return Clutter.EVENT_STOP;
         });
 
+        this._initDrag();
+
         this.connect('notify::hover', () => {
             if (this.hover && this._hoverCb) this._hoverCb();
             else if (!this.hover) this.setSelected(false);
@@ -71,11 +84,17 @@ export class GridItem extends St.Button {
     }
 
     setup(result: SearchResult, onActivate: () => void, onHover: () => void, iconSize = 52,
-          onMenu: (() => void) | null = null) {
+          onMenu: (() => void) | null = null, onDragStart: (() => void) | null = null) {
         this._result = result;
         this._activateCb = onActivate;
         this._hoverCb = onHover;
         this._menuCb = onMenu;
+        this._dragStartCb = onDragStart;
+        this._iconSize = iconSize;
+        // Items are pooled, so whether this one can be dragged out is decided
+        // per result: only an installed application can go into the dock.
+        this._app = appFromDesktopId(result.desktopId);
+        this._dndGesture.enabled = !!this._app;
 
         this.setSelected(false);
 
@@ -107,6 +126,50 @@ export class GridItem extends St.Button {
     }
 
     get result() { return this._result; }
+
+    /** True when pressing here starts an app drag rather than a card move. */
+    get isAppDraggable() { return !!this._app; }
+
+    /**
+     * Drag an application out of the grid, onto the dock to keep it there.
+     *
+     * The dash accepts a drop only from a genuine AppDisplay.AppIcon (and the
+     * stock grid's own drag handlers call actor methods on the source), so the
+     * drag is carried by a real AppIcon that is never shown: DND reads the
+     * delegate only after drag-begin, which is where it is made. The overview's
+     * item-drag signals are what make the dock open a gap under the pointer and
+     * close it again, exactly as for a drag that starts on a dock icon.
+     */
+    _initDrag() {
+        this._dragProxy = null;
+        const draggable = DND.makeDraggable(this, {});
+        this._dndGesture = this.get_actions().find((a: any) => a instanceof St.DndStartGesture);
+
+        draggable.connect('drag-begin', () => {
+            if (!this._app) return;
+            const proxy: any = new AppDisplay.AppIcon(this._app, { isDraggable: false });
+            const size = this._iconSize - 8;
+            proxy.getDragActor = () => this._app!.create_icon_texture(size);
+            proxy.getDragActorSource = () => this._iconBin;
+            this._dragProxy = proxy;
+            (this as any)._delegate = proxy;
+            Main.overview.beginItemDrag(proxy);
+            // The launcher covers the dock; get out of the way, as Launchpad
+            // does once an icon is dragged out of it.
+            this._dragStartCb?.();
+        });
+        draggable.connect('drag-cancelled', () => {
+            if (this._dragProxy) Main.overview.cancelledItemDrag(this._dragProxy);
+        });
+        draggable.connect('drag-end', () => {
+            const proxy = this._dragProxy;
+            if (!proxy) return;
+            Main.overview.endItemDrag(proxy);
+            this._dragProxy = null;
+            (this as any)._delegate = null;
+            proxy.destroy();
+        });
+    }
 
     setSelected(on: boolean) {
         if (on) this.add_style_class_name('selected');

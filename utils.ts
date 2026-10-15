@@ -81,6 +81,14 @@ export function easeActor(actor: Clutter.Actor, params: any): Promise<void> {
   });
 }
 
+/**
+ * The actor an event is aimed at. Clutter.Event.get_source() still exists but
+ * returns null on GNOME 50; the stage is what knows.
+ */
+export function eventActor(ev: any): any {
+    return (global.stage as any).get_event_actor?.(ev) ?? ev.get_source?.() ?? null;
+}
+
 export function scrollToActor(scrollView: St.ScrollView, actor: Clutter.Actor) {
   if (typeof (scrollView as any).ensure_actor_visible === 'function') {
     (scrollView as any).ensure_actor_visible(actor);

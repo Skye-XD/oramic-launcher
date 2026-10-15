@@ -23,6 +23,7 @@ import {
     timeoutOnce,
     easeActor,
     setDebug,
+    eventActor,
 } from './utils.js';
 
 import { AppProvider } from './providers/apps.js';
@@ -36,6 +37,7 @@ import { SearchResult } from './types.js';
 import { LauncherDialog } from './launcher/LauncherDialog.js';
 import { ItemMenuController } from './launcher/ItemMenu.js';
 import { appFromDesktopId } from './launcher/appOps.js';
+import { GridItem } from './components/GridItem.js';
 
 
 class OrmicIndicator extends PanelMenu.Button {
@@ -393,7 +395,11 @@ export default class OrmicLauncherExtension extends Extension {
                 // entry cannot serve both; hold Super to drag from there,
                 // matching how GNOME already moves windows.
                 const superHeld = (ev.get_state() & Clutter.ModifierType.MOD4_MASK) !== 0;
-                if (!superHeld && this._isTextTarget(ev.get_source())) return Clutter.EVENT_PROPAGATE;
+                const target = eventActor(ev);
+                if (!superHeld && this._isTextTarget(target)) return Clutter.EVENT_PROPAGATE;
+                // An application icon drags itself out (onto the dock); the
+                // card only moves from everywhere else.
+                if (!superHeld && this._isAppItemTarget(target)) return Clutter.EVENT_PROPAGATE;
                 const [sx, sy] = ev.get_coords();
                 const [dx, dy] = dialog.get_position();
                 this._drag = { sx, sy, dx, dy, active: false };
@@ -435,6 +441,14 @@ export default class OrmicLauncherExtension extends Extension {
                 return Clutter.EVENT_PROPAGATE;
             }
         });
+    }
+
+    /** True if the actor is a draggable application icon or lives inside one. */
+    _isAppItemTarget(actor: any): boolean {
+        for (let a = actor; a && a !== this._dialog; a = a.get_parent()) {
+            if (a instanceof GridItem) return a.isAppDraggable;
+        }
+        return false;
     }
 
     /** True if the actor is the search entry or lives inside it. */
