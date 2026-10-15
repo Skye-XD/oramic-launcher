@@ -297,6 +297,8 @@ export class GridController {
             return;
         }
 
+        // Read once: rows are laid out for this count, and later chunks must
+        // index into the same rows even if the setting changes mid-render.
         const columns = this._columns();
         const numRows = Math.ceil(apps.length / columns);
         const rows: St.BoxLayout[] = [];
@@ -311,7 +313,7 @@ export class GridController {
         }
 
         const syncEnd = Math.min((INITIAL_ROWS * columns), apps.length);
-        this._fillSlice(apps, rows, 0, syncEnd, gen);
+        this._fillSlice(apps, rows, columns, 0, syncEnd, gen);
 
         if (s.gridScroll.visible) {
             s.gridSelIdx = 0;
@@ -325,19 +327,20 @@ export class GridController {
             `renderGridOnly('${s.activeCategory}') sync ${syncEnd}/${apps.length} items — ${elapsed.toFixed(1)}ms`);
 
         if (apps.length > syncEnd)
-            this._scheduleChunk(gen, apps, rows, syncEnd);
+            this._scheduleChunk(gen, apps, rows, columns, syncEnd);
     }
 
     private _fillSlice(
         apps: SearchResult[],
         rows: St.BoxLayout[],
+        columns: number,
         start: number,
         end: number,
         gen: number,
     ): void {
         for (let i = start; i < end; i++) {
             const app = apps[i];
-            const rowIdx = Math.floor(i / this._columns());
+            const rowIdx = Math.floor(i / columns);
             const item = this._getPoolItem();
             const capturedIdx = i;
 
@@ -363,16 +366,17 @@ export class GridController {
         gen: number,
         apps: SearchResult[],
         rows: St.BoxLayout[],
+        columns: number,
         startIdx: number,
     ): void {
         idleOnce(() => {
             if (gen !== this._renderGen) return;
 
-            const endIdx = Math.min(startIdx + (CHUNK_ROWS * this._columns()), apps.length);
-            this._fillSlice(apps, rows, startIdx, endIdx, gen);
+            const endIdx = Math.min(startIdx + (CHUNK_ROWS * columns), apps.length);
+            this._fillSlice(apps, rows, columns, startIdx, endIdx, gen);
 
             if (endIdx < apps.length)
-                this._scheduleChunk(gen, apps, rows, endIdx);
+                this._scheduleChunk(gen, apps, rows, columns, endIdx);
         });
     }
 

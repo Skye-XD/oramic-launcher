@@ -18,7 +18,9 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import { logDebug, idleOnce } from '../utils.js';
-import { detectPackage, showInFiles, showProperties } from './appOps.js';
+import {
+    detectPackage, isPinnedToDock, setPinnedToDock, showInFiles, showProperties,
+} from './appOps.js';
 import { showRemoveDialog } from './ItemDialogs.js';
 
 export interface ItemMenuCallbacks {
@@ -116,6 +118,14 @@ export class ItemMenuController {
         add('Get Info', () => {
             showProperties(app);
             cb.dismiss();
+        });
+
+        // Pinning is the one entry that acts on the dock rather than on the
+        // application, and it reads its own state, so the label says which way
+        // it will go rather than naming a toggle.
+        const pinned = isPinnedToDock(app);
+        add(pinned ? 'Remove from Dock' : 'Keep in Dock', () => {
+            setPinnedToDock(app, !pinned);
         });
 
         menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());

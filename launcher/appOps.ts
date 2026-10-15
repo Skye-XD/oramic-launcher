@@ -22,6 +22,8 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Shell from 'gi://Shell';
 
+import * as AppFavorites from 'resource:///org/gnome/shell/ui/appFavorites.js';
+
 import { logDebug } from '../utils.js';
 
 export type PackageKind = 'flatpak-user' | 'flatpak-system' | 'rpm' | 'snap' | 'unknown';
@@ -226,21 +228,28 @@ export function showInFiles(app: Shell.App): boolean {
     if (!path) return false;
 
     // The file manager's own D-Bus interface selects the file rather than
-    // merely opening its directory, which is what "Show in Finder" does.
-    try {
-        Gio.DBus.session.call(
-            'org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
-            'org.freedesktop.FileManager1', 'ShowItems',
-            new GLib.Variant('(ass)', [[Gio.File.new_for_path(path).get_uri()], '']),
-            null, Gio.DBusCallFlags.NONE, -1, null, null);
-        return true;
-    } catch (e) {
-        logDebug('appOps', `ShowItems failed, opening the folder instead: ${e}`);
-        const dir = GLib.path_get_dirname(path);
-        Gio.AppInfo.launch_default_for_uri(
-            Gio.File.new_for_path(dir).get_uri(), null);
-        return true;
-    }
+    // merely opening its directory, which is what "Show in Finder" does. The
+    // call is async, so a missing file manager only shows up in the callback;
+    // the fallback runs there, and the return value means a request was made.
+    Gio.DBus.session.call(
+        'org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
+        'org.freedesktop.FileManager1', 'ShowItems',
+        new GLib.Variant('(ass)', [[Gio.File.new_for_path(path).get_uri()], '']),
+        null, Gio.DBusCallFlags.NONE, -1, null, (conn, res) => {
+            try {
+                conn!.call_finish(res);
+            } catch (e) {
+                logDebug('appOps', `ShowItems failed, opening the folder instead: ${e}`);
+                const dir = GLib.path_get_dirname(path);
+                try {
+                    Gio.AppInfo.launch_default_for_uri(
+                        Gio.File.new_for_path(dir).get_uri(), null);
+                } catch (e2) {
+                    logDebug('appOps', `opening the folder failed: ${e2}`);
+                }
+            }
+        });
+    return true;
 }
 
 /**
@@ -253,21 +262,60 @@ export function showInFiles(app: Shell.App): boolean {
  * Wayland client of its own to map a window from.
  *
  * @param app the application to describe
- * @returns whether a path was found to ask about
+ * @returns whether a path was found to ask about; a failed call is only logged
  */
 export function showProperties(app: Shell.App): boolean {
     const path = desktopPathOf(app);
     if (!path) return false;
 
-    try {
-        Gio.DBus.session.call(
-            'org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
-            'org.freedesktop.FileManager1', 'ShowItemProperties',
-            new GLib.Variant('(ass)', [[Gio.File.new_for_path(path).get_uri()], '']),
-            null, Gio.DBusCallFlags.NONE, -1, null, null);
-        return true;
-    } catch (e) {
-        logDebug('appOps', `ShowItemProperties failed: ${e}`);
-        return false;
-    }
+    Gio.DBus.session.call(
+        'org.freedesktop.FileManager1', '/org/freedesktop/FileManager1',
+        'org.freedesktop.FileManager1', 'ShowItemProperties',
+        new GLib.Variant('(ass)', [[Gio.File.new_for_path(path).get_uri()], '']),
+        null, Gio.DBusCallFlags.NONE, -1, null, (conn, res) => {
+            try {
+                conn!.call_finish(res);
+            } catch (e) {
+                logDebug('appOps', `ShowItemProperties failed: ${e}`);
+            }
+        });
+    return true;
+}
+
+/**
+ * Whether the application is pinned to the dock.
+ *
+ * The dash and every dock extension read the same `favorite-apps` list, so
+ * there is one answer here rather than one per dock.
+ *
+ * @param app the application to check
+ * @returns whether it is pinned
+ */
+export function isPinnedToDock(app: Shell.App): boolean {
+    const id = app.get_id();
+    return !!id && AppFavorites.getAppFavorites().isFavorite(id);
+}
+
+/**
+ * Pin the application to the dock, or unpin it.
+ *
+ * Goes through the shell's own AppFavorites rather than writing
+ * `favorite-apps` directly: it keeps the in-process favourites map in step
+ * with the setting, and it posts the undo notification that every other way
+ * of pinning in this desktop posts. A menu entry is a deliberate, one-off
+ * action, so that undo is worth having -- unlike the inline star on a search
+ * row, which shows its own state and would be noisy.
+ *
+ * @param app the application to pin or unpin
+ * @param pinned the state to put it in
+ */
+export function setPinnedToDock(app: Shell.App, pinned: boolean): void {
+    const id = app.get_id();
+    if (!id) return;
+
+    const favorites = AppFavorites.getAppFavorites();
+    if (pinned)
+        favorites.addFavorite(id);
+    else
+        favorites.removeFavorite(id);
 }
