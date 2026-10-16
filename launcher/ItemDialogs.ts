@@ -100,16 +100,15 @@ export function showRemoveDialog(
         else button?.add_style_pseudo_class?.('insensitive');
     };
 
-    previewRemoval(pkg).then(preview => {
+    previewRemoval(pkg).then(result => {
         if (closed || done) return;
         // No preview, no removal: `dnf remove` takes dependants with it, and
         // confirming blind is exactly what the preview exists to prevent.
-        if (!preview) {
-            previewLabel.set_text('The package manager did not report what it would ' +
-                'remove, so it is not removed from here. Use the package manager directly.');
+        if (!('preview' in result)) {
+            previewLabel.set_text(result.reason);
             return;
         }
-        previewLabel.set_text(`Removes:  ${preview}`);
+        previewLabel.set_text(`Removes:  ${result.preview}`);
         setSensitive(confirmButton, true);
     }).catch(() => {
         if (closed || done) return;

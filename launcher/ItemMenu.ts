@@ -134,6 +134,15 @@ export class ItemMenuController {
             cb.dismiss();
             pkgPromise.then(pkg => {
                 showRemoveDialog(app, pkg, () => cb.onGrabChanged(false));
+            }).catch(e => {
+                // Detection itself failed; say so through the refusal dialog
+                // rather than letting the click do nothing.
+                logDebug('ItemMenu', `package detection failed: ${e}`);
+                showRemoveDialog(app, {
+                    kind: 'unknown', name: '', desktopPath: null, argv: [],
+                    refusal: 'Could not work out how this application was installed, ' +
+                        'so it is not removed from here.',
+                }, () => cb.onGrabChanged(false));
             });
         }, true);
 
