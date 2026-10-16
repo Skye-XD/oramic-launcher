@@ -51,12 +51,30 @@ const PROTECTED_PACKAGES = new Set([
     'wireplumber', 'xdg-desktop-portal', 'xdg-desktop-portal-gnome',
 ]);
 
-function run(argv: string[]): Promise<{ ok: boolean; out: string; err: string }> {
+// System locations a desktop entry may be copied from. See `effectivePath`.
+const SYSTEM_APP_DIRS = [
+    '/usr/share/applications',
+    '/usr/local/share/applications',
+    '/var/lib/flatpak/exports/share/applications',
+    GLib.build_filenamev([GLib.get_home_dir(), '.local/share/flatpak/exports/share/applications']),
+    '/var/lib/snapd/desktop/applications',
+];
+
+// Reverse-DNS with at least three components, none starting with '-' or a
+// digit. Anything else would reach flatpak's argv as something other than an
+// application id.
+const FLATPAK_ID = /^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*){2,}$/;
+
+function run(argv: string[], env?: Record<string, string>): Promise<{ ok: boolean; out: string; err: string }> {
     return new Promise(resolve => {
         let proc: Gio.Subprocess;
         try {
-            proc = Gio.Subprocess.new(argv,
-                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+            const launcher = new Gio.SubprocessLauncher({
+                flags: Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE,
+            });
+            for (const [k, v] of Object.entries(env ?? {}))
+                launcher.setenv(k, v, true);
+            proc = launcher.spawnv(argv);
         } catch (e) {
             resolve({ ok: false, out: '', err: String(e) });
             return;
@@ -82,6 +100,34 @@ export function desktopPathOf(app: Shell.App | null): string | null {
     return info?.get_filename?.() ?? null;
 }
 
+function desktopKey(path: string, key: string): string | null {
+    const kf = new GLib.KeyFile();
+    try {
+        kf.load_from_file(path, GLib.KeyFileFlags.NONE);
+        return kf.get_string('Desktop Entry', key);
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The entry detection should look at. x11-menus copies some system entries
+ * into ~/.local/share/applications, where no package owns them; the copy
+ * names its original in `X-GlobalMenu-Source`. That is followed only to an
+ * existing file of the same name directly inside a system application
+ * directory, so the key cannot point detection anywhere else.
+ */
+function effectivePath(desktopPath: string): string {
+    const source = desktopKey(desktopPath, 'X-GlobalMenu-Source');
+    if (!source ||
+        GLib.canonicalize_filename(source, null) !== source ||
+        !SYSTEM_APP_DIRS.includes(GLib.path_get_dirname(source)) ||
+        GLib.path_get_basename(source) !== GLib.path_get_basename(desktopPath) ||
+        !GLib.file_test(source, GLib.FileTest.IS_REGULAR))
+        return desktopPath;
+    return source;
+}
+
 /**
  * Work out how the application was installed, and how it would be removed.
  *
@@ -90,26 +136,41 @@ export function desktopPathOf(app: Shell.App | null): string | null {
  * `-qf` for any file it owns.
  */
 export async function detectPackage(app: Shell.App): Promise<PackageInfo> {
-    const desktopPath = desktopPathOf(app);
+    const shownPath = desktopPathOf(app);
+    if (!shownPath) {
+        return {
+            kind: 'unknown', name: '', desktopPath: null, argv: [],
+            refusal: _noPathRefusal(),
+        };
+    }
+
+    const desktopPath = effectivePath(shownPath);
     const base: PackageInfo = {
         kind: 'unknown', name: '', desktopPath, argv: [], refusal: null,
     };
 
-    if (!desktopPath) {
-        return { ...base, refusal: _noPathRefusal() };
-    }
-
-    // Flatpak exports under .../flatpak/exports/share/applications/<id>.desktop
+    // Flatpak exports under .../flatpak/exports/share/applications/<id>.desktop.
+    // X-Flatpak names the application for entries that are not its main one
+    // (org.libreoffice.LibreOffice.writer.desktop); the basename is the
+    // fallback. Either way the id ends up in argv, so it is validated.
     if (desktopPath.includes('/flatpak/exports/')) {
-        const id = GLib.path_get_basename(desktopPath).replace(/\.desktop$/, '');
+        const id = desktopKey(desktopPath, 'X-Flatpak') ??
+            GLib.path_get_basename(desktopPath).replace(/\.desktop$/, '');
+        if (!FLATPAK_ID.test(id)) {
+            return {
+                ...base,
+                refusal: `"${id}" is not a valid flatpak application id, ` +
+                    'so it is not passed to flatpak.',
+            };
+        }
         const user = desktopPath.startsWith(GLib.get_home_dir());
         return {
             ...base,
             kind: user ? 'flatpak-user' : 'flatpak-system',
             name: id,
             argv: user
-                ? ['flatpak', 'uninstall', '--user', '--assumeyes', id]
-                : ['pkexec', 'flatpak', 'uninstall', '--assumeyes', id],
+                ? ['flatpak', 'uninstall', '--user', '--assumeyes', '--', id]
+                : ['pkexec', 'flatpak', 'uninstall', '--assumeyes', '--', id],
         };
     }
 
@@ -152,12 +213,13 @@ function _noPathRefusal(): string {
  * dependants with it, so a leaf application can pull a long tail behind it.
  *
  * @param pkg the package to preview
- * @returns lines describing the transaction, or null when it cannot be previewed
+ * @returns lines describing the transaction, or why there is none to show
  */
-export async function previewRemoval(pkg: PackageInfo): Promise<string | null> {
+export async function previewRemoval(pkg: PackageInfo): Promise<{ preview: string } | { reason: string }> {
     if (pkg.kind === 'rpm') {
-        // --assumeno prints the transaction and exits without doing it.
-        const r = await run(['dnf', 'remove', '--assumeno', pkg.name]);
+        // --assumeno prints the transaction and exits without doing it. The
+        // parse below reads dnf's English headings, so the locale is pinned.
+        const r = await run(['dnf', 'remove', '--assumeno', pkg.name], { LC_ALL: 'C' });
         const text = `${r.out}\n${r.err}`;
 
         // Parse by section rather than by row shape: dnf prints a header and
@@ -182,18 +244,25 @@ export async function previewRemoval(pkg: PackageInfo): Promise<string | null> {
             const list = names.length > 12
                 ? `${names.slice(0, 12).join(', ')} and ${names.length - 12} more`
                 : names.join(', ');
-            return `${names.length} package(s): ${list}${size ? `\n${size}` : ''}`;
+            return { preview: `${names.length} package(s): ${list}${size ? `\n${size}` : ''}` };
         }
-        return text.trim() ? text.trim().split('\n').slice(0, 12).join('\n') : null;
+        // No "Removing:" block is not a preview, and raw output is not one
+        // either: it may be cut short, or say there is nothing to remove.
+        if (/^Nothing to do\.|^No packages to remove/m.test(text))
+            return { reason: `dnf reports nothing to remove for ${pkg.name}.` };
+        return {
+            reason: 'The package manager did not report what it would remove, ' +
+                'so it is not removed from here. Use the package manager directly.',
+        };
     }
 
     if (pkg.kind === 'flatpak-user' || pkg.kind === 'flatpak-system')
-        return `flatpak application ${pkg.name}`;
+        return { preview: `flatpak application ${pkg.name}` };
 
     if (pkg.kind === 'snap')
-        return `snap ${pkg.name}`;
+        return { preview: `snap ${pkg.name}` };
 
-    return null;
+    return { reason: 'There is no way to preview this removal.' };
 }
 
 /**
