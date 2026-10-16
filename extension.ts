@@ -124,6 +124,7 @@ export default class OrmicLauncherExtension extends Extension {
     _keyFocusWatchId: number | null = null;
     _origOverviewShow: ((state?: number) => void) | null = null;
     _routingAppGrid = false;
+    _routingTimer: number | null = null;
     _focusId!: number | null;
     _overlayCapturedId!: number | null;
     _overlayPressId!: number | null;
@@ -260,6 +261,10 @@ export default class OrmicLauncherExtension extends Extension {
 
     disable() {
         logDebug('Extension', 'disable() called');
+        // Close first if open (the screen locking disables us): hide() owns the
+        // modal grab, the drag grab and the focus watchers, none of which the
+        // teardown below knows about.
+        this.hide();
         this._itemMenu?.destroy();
         this._itemMenu = null;
         this._menuGrabHeld = false;
@@ -369,7 +374,10 @@ export default class OrmicLauncherExtension extends Extension {
                 if (showAppsButton?.checked) showAppsButton.checked = false;
                 // Dash to Dock defers its toggle handling, so the echo arrives
                 // after this returns; hold the guard past that.
-                timeoutOnce(250, () => { self._routingAppGrid = false; });
+                self._routingTimer = timeoutOnce(250, () => {
+                    self._routingTimer = null;
+                    self._routingAppGrid = false;
+                });
                 self.toggle();
                 return;
             }
@@ -378,6 +386,8 @@ export default class OrmicLauncherExtension extends Extension {
     }
 
     _removeOverviewHook() {
+        if (this._routingTimer != null) { GLib.source_remove(this._routingTimer); this._routingTimer = null; }
+        this._routingAppGrid = false;
         if (!this._origOverviewShow) return;
         (Main.overview as any).show = this._origOverviewShow;
         this._origOverviewShow = null;
@@ -663,8 +673,9 @@ export default class OrmicLauncherExtension extends Extension {
             duration: 260, mode: Clutter.AnimationMode.EASE_OUT_QUINT,
         });
 
+        // Hidden or rebuilt within those 10ms, the dialog is gone or not ours.
         const d = this._dialog;
-        timeoutOnce(10, () => d.focus());
+        timeoutOnce(10, () => { if (this._visible && this._dialog === d) d.focus(); });
     }
 
     hide() {

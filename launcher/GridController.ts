@@ -84,19 +84,18 @@ export class GridController {
     // ── Tab widget cache key (custom group names joined).
     private _tabCacheKey = '';
 
+    // ── Settings handlers, disconnected in cleanup().
+    private _settingIds: number[] = [];
+
     constructor(state: LauncherState) {
         this._s = state;
 
-        // Re-render the grid live when the icon-size preference changes.
-        state.ext._settings.connect('changed::grid-icon-size', () => {
-            if (state.gridScroll.visible) this.renderGridOnly();
-        });
-
-        // Same for anything else that changes how many columns fit.
-        for (const key of ['grid-columns', 'launcher-width']) {
-            state.ext._settings.connect(`changed::${key}`, () => {
+        // Re-render the grid live when the icon size, or anything else that
+        // changes how many columns fit, changes.
+        for (const key of ['grid-icon-size', 'grid-columns', 'launcher-width']) {
+            this._settingIds.push(state.ext._settings.connect(`changed::${key}`, () => {
                 if (state.gridScroll.visible) this.renderGridOnly();
-            });
+            }));
         }
     }
 
@@ -515,6 +514,8 @@ export class GridController {
     }
 
     cleanup(): void {
+        this._settingIds.forEach(id => this._s.ext._settings.disconnect(id));
+        this._settingIds = [];
         this.cancelRenderJob();
         // Bump gen so any pending idle chunks abort cleanly
         this._renderGen++;

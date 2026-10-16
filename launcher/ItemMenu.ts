@@ -141,11 +141,19 @@ export class ItemMenuController {
         // cannot be removed, and saying so up front beats a dialog that only
         // exists to refuse.
         removeItem.setSensitive(false);
+        // Detection is async and can outlive the menu (closed and destroyed
+        // before rpm answers); a destroyed item must not be touched.
+        let removeItemGone = false;
+        removeItem.connect('destroy', () => { removeItemGone = true; });
         pkgPromise.then(pkg => {
+            if (removeItemGone) return;
             removeItem.setSensitive(true);
+            // Two reasons to refuse, and they read differently: a package
+            // the desktop needs, or no package at all.
             if (pkg.refusal)
-                removeItem.label.set_text('Uninstall (protected)');
-        }).catch(() => removeItem.setSensitive(false));
+                removeItem.label.set_text(pkg.kind === 'unknown'
+                    ? 'Uninstall (not from a package)' : 'Uninstall (protected)');
+        }).catch(() => { if (!removeItemGone) removeItem.setSensitive(false); });
 
         this._manager.addMenu(menu);
         Main.uiGroup.add_child(menu.actor);
