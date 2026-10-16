@@ -94,7 +94,7 @@ export class GridItem extends St.Button {
         // Items are pooled, so whether this one can be dragged out is decided
         // per result: only an installed application can go into the dock.
         this._app = appFromDesktopId(result.desktopId);
-        this._dndGesture.enabled = !!this._app;
+        if (this._dndGesture) this._dndGesture.enabled = !!this._app;
 
         this.setSelected(false);
 
@@ -128,7 +128,7 @@ export class GridItem extends St.Button {
     get result() { return this._result; }
 
     /** True when pressing here starts an app drag rather than a card move. */
-    get isAppDraggable() { return !!this._app; }
+    get isAppDraggable() { return !!this._app && !!this._dndGesture; }
 
     /**
      * Drag an application out of the grid, onto the dock to keep it there.
@@ -142,6 +142,11 @@ export class GridItem extends St.Button {
      */
     _initDrag() {
         this._dragProxy = null;
+        this._dndGesture = null;
+        // DND drags start from St.DndStartGesture only since GNOME 50; it is
+        // also what lets a pooled item switch dragging off. Older shells keep
+        // the upstream behaviour: no dragging apps out, pressing moves the card.
+        if (!(St as any).DndStartGesture) return;
         const draggable = DND.makeDraggable(this, {});
         this._dndGesture = this.get_actions().find((a: any) => a instanceof St.DndStartGesture);
 
