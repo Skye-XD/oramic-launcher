@@ -9,6 +9,7 @@ import Pango from 'gi://Pango';
 import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 
 import { PackageInfo, previewRemoval, runRemoval } from './appOps.js';
+import { boxLayoutParams } from '../utils.js';
 
 function wrapped(text: string, styleClass: string): St.Label {
     const label = new St.Label({ text, style_class: styleClass });
@@ -19,11 +20,11 @@ function wrapped(text: string, styleClass: string): St.Label {
 }
 
 function header(app: Shell.App, subtitle: string): St.BoxLayout {
-    const row = new St.BoxLayout({ style_class: 'prompt-dialog-main-layout', vertical: false });
+    const row = new St.BoxLayout({ style_class: 'prompt-dialog-main-layout', ...boxLayoutParams(false) });
     const icon = (app as any).create_icon_texture?.(48);
     if (icon) row.add_child(icon);
 
-    const col = new St.BoxLayout({ vertical: true, y_align: Clutter.ActorAlign.CENTER });
+    const col = new St.BoxLayout({ ...boxLayoutParams(true), y_align: Clutter.ActorAlign.CENTER });
     col.add_child(wrapped(app.get_name() ?? '', 'prompt-dialog-headline'));
     if (subtitle)
         col.add_child(wrapped(subtitle, 'prompt-dialog-description'));
@@ -68,7 +69,7 @@ export function showRemoveDialog(
     dialog.contentLayout.add_child(
         header(app, `Remove this application from the system?`));
 
-    const detail = new St.BoxLayout({ vertical: true, style_class: 'prompt-dialog-main-layout' });
+    const detail = new St.BoxLayout({ ...boxLayoutParams(true), style_class: 'prompt-dialog-main-layout' });
     detail.add_child(wrapped(`Runs:  ${pkg.argv.join(' ')}`, 'prompt-dialog-description'));
 
     const previewLabel = wrapped('Checking what this would remove…', 'prompt-dialog-description');
