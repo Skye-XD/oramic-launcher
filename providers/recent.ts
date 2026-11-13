@@ -11,15 +11,16 @@ export class RecentProvider {
     private xbel = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share', 'recently-used.xbel']);
     private _cachedRecent: { uri: string; name: string; path: string }[] = [];
 
-    constructor(private _s: Gio.Settings) {
-        this.onOpen();
-    }
+    private _stale = true;
+
+    constructor(private _s: Gio.Settings) { }
 
     onOpen() {
-        if (!this._s.get_boolean('enable-recent-files')) {
-            this._cachedRecent = [];
-            return;
-        }
+        this._stale = true;
+    }
+
+    private _load() {
+        this._stale = false;
         try {
             const bm = new GLib.BookmarkFile();
             bm.load_from_file(this.xbel);
@@ -41,6 +42,7 @@ export class RecentProvider {
         if (!this._s.get_boolean('enable-recent-files')) return [];
         const q = query.toLowerCase().trim();
         if (!q || q.length < 2) return [];
+        if (this._stale) this._load();
         const out: SearchResult[] = [];
         for (const item of this._cachedRecent) {
             const base = item.name.toLowerCase();
