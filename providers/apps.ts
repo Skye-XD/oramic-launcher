@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Ormic Launcher — App Search Provider
 
+import GLib from 'gi://GLib';
 import St from 'gi://St';
 import Shell from 'gi://Shell';
 import GMenu from 'gi://GMenu';
@@ -15,6 +16,7 @@ export class AppProvider {
     private _tree: any = null;
     private _installedChangedId = 0;
     private _dirty = true;
+    private _idleId = 0;
 
     get dirty(): boolean { return this._dirty; }
 
@@ -36,10 +38,18 @@ export class AppProvider {
             logDebug('AppProvider', 'installed-changed signal — marking cache dirty');
             this._dirty = true;
         });
-        this._buildCache();
+        this._idleId = GLib.idle_add(GLib.PRIORITY_LOW, () => {
+            this._idleId = 0;
+            this.ensureCache();
+            return GLib.SOURCE_REMOVE;
+        });
     }
 
     destroy() {
+        if (this._idleId) {
+            GLib.source_remove(this._idleId);
+            this._idleId = 0;
+        }
         if (this._tree) {
             this._tree = null;
         }

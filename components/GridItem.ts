@@ -13,7 +13,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
 import { SearchResult } from '../types.js';
 import { appFromDesktopId } from '../launcher/appOps.js';
-import { logDebug, boxLayoutParams } from '../utils.js';
+import { logDebug, boxLayoutParams, easeActor } from '../utils.js';
 
 export class GridItem extends St.Button {
     static {
@@ -46,6 +46,7 @@ export class GridItem extends St.Button {
         (box.layout_manager as Clutter.BoxLayout).spacing = 4;
 
         this._iconBin = new St.Bin({ style_class: 'ormic-grid-icon-bin' });
+        this._iconBin.set_pivot_point(0.5, 0.5);
         box.add_child(this._iconBin);
 
         this._nameLabel = new St.Label({
@@ -98,11 +99,12 @@ export class GridItem extends St.Button {
 
         this.setSelected(false);
 
-        const cardW = iconSize + 20;
-        const cardH = iconSize + 34;
-        const binRadius = Math.round(iconSize * 0.22);
-        this.set_style(`width: ${cardW}px; height: ${cardH}px;`);
-        this._iconBin.set_style(`width: ${iconSize}px; border-radius: ${binRadius}px;`);
+        if (this._iconSize !== iconSize) {
+            this._iconSize = iconSize;
+            const binRadius = Math.round(iconSize * 0.22);
+            this.set_style(`width: ${iconSize + 20}px; height: ${iconSize + 34}px;`);
+            this._iconBin.set_style(`width: ${iconSize}px; border-radius: ${binRadius}px;`);
+        }
 
         let iconWidget: any = null;
         if (result.createIcon) {
@@ -176,8 +178,19 @@ export class GridItem extends St.Button {
         });
     }
 
-    setSelected(on: boolean) {
+    setSelected(on: boolean, animate = false) {
         if (on) this.add_style_class_name('selected');
         else this.remove_style_class_name('selected');
+
+        const scale = on ? 1.08 : 1;
+        this._iconBin.remove_all_transitions();
+        if (animate) {
+            easeActor(this._iconBin, {
+                scale_x: scale, scale_y: scale,
+                duration: 120, mode: Clutter.AnimationMode.EASE_OUT_QUAD,
+            });
+        } else {
+            this._iconBin.set_scale(scale, scale);
+        }
     }
 }
